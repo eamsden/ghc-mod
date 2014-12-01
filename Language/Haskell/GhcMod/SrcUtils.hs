@@ -24,7 +24,7 @@ import Outputable (PprStyle)
 import TcHsSyn (hsPatType)
 import HsExpr(HsExpr(..), Match(..))
 import NameSet(NameSet())
-import Var(Var())
+import Var(Var(), isLocalVar)
 import VarSet
 import HsPat(Pat(..))
 import HsLit(PostTcType)
@@ -137,7 +137,8 @@ hsFreeVars' :: (Data a) => a -> VarSet
 hsFreeVars' x = unionVarSets $ gmapQ (avoidPotholes TypeChecker emptyVarSet $ (hsFreeVars' `extQ` hsFreeVars) `extQ` matchFreeVars) x
 
 hsFreeVars :: HsExpr Var -> VarSet
-hsFreeVars (HsVar x) = unitVarSet x
+hsFreeVars (HsVar x) | isLocalVar x = unitVarSet x
+                     | otherwise = emptyVarSet
 hsFreeVars hse = hsFreeVars' hse
 
 patVars' :: (Data a) => a -> VarSet
@@ -145,6 +146,7 @@ patVars' x = unionVarSets $ gmapQ (avoidPotholes TypeChecker emptyVarSet $ patVa
 
 patVars :: Pat Var -> VarSet
 patVars (VarPat x) = unitVarSet x
+                   
 patVars p = patVars' p 
 
 matchFreeVars :: Match Var (LHsExpr Var) -> VarSet
