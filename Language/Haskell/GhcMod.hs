@@ -44,6 +44,8 @@ module Language.Haskell.GhcMod (
   , findSymbol
   , lookupSymbol
   , dumpSymbol
+  , tree
+  , freeVars
   -- * SymbolDb
   , loadSymbolDb
   , isOutdated
@@ -54,6 +56,7 @@ import Language.Haskell.GhcMod.Browse
 import Language.Haskell.GhcMod.CaseSplit
 import Language.Haskell.GhcMod.Check
 import Language.Haskell.GhcMod.Cradle
+import Language.Haskell.GhcMod.CutPaste
 import Language.Haskell.GhcMod.Debug
 import Language.Haskell.GhcMod.FillSig
 import Language.Haskell.GhcMod.Find

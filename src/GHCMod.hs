@@ -28,6 +28,8 @@ import System.IO.Unsafe (unsafePerformIO)
 import System.FilePath (takeFileName)
 import System.Exit (ExitCode, exitSuccess)
 import Text.PrettyPrint
+import GHC (SrcLoc, SrcSpan, mkSrcLoc, mkSrcSpan)
+import FastString (fsLit)
 
 import Misc
 
@@ -511,6 +513,8 @@ ghcCommands (cmd:args) = fn args
      "doc"     -> pkgDocCmd
      "dumpsym" -> dumpSymbolCmd
      "boot"    -> bootCmd
+     "tree"    -> treeCmd
+     "freeVars" -> freeVarsCmd
      _         -> fatalError $ "unknown command: `" ++ cmd ++ "'"
 
 newtype FatalError = FatalError String deriving (Show, Typeable)
@@ -537,7 +541,7 @@ withParseCmd spec action args  = do
 
 modulesCmd, languagesCmd, flagsCmd, browseCmd, checkSyntaxCmd, expandTemplateCmd,
   debugInfoCmd, infoCmd, typesCmd, splitsCmd, sigCmd, refineCmd, autoCmd,
-  findSymbolCmd, lintCmd, rootInfoCmd, pkgDocCmd, dumpSymbolCmd, bootCmd
+  findSymbolCmd, lintCmd, rootInfoCmd, pkgDocCmd, dumpSymbolCmd, bootCmd, treeCmd, freeVarsCmd
   :: IOish m => [String] -> GhcModT m String
 
 modulesCmd    = withParseCmd [] $ \[] -> modules
@@ -569,6 +573,9 @@ infoCmd       = withParseCmd [] $ action
         action [file,expr]   = info file expr
         action _ = throw $ InvalidCommandLine (Left "info")
 
+treeCmd = withParseCmd [] $ spanAction "tree" tree
+freeVarsCmd = withParseCmd [] $ spanAction "freeVars" freeVars
+
 checkAction :: ([t] -> a) -> [t] -> a
 checkAction _ []         = throw $ InvalidCommandLine (Right "No files given.")
 checkAction action files = action files
@@ -582,6 +589,10 @@ locAction' :: String -> (String -> Int -> Int -> String -> a) -> [String] -> a
 locAction' _ action [f,_,line,col,expr] = action f (read line) (read col) expr
 locAction' _ action [f,  line,col,expr] = action f (read line) (read col) expr
 locAction' cmd _ _ = throw $ InvalidCommandLine (Left cmd)
+
+spanAction :: String -> (String -> SrcSpan -> a) -> [String] -> a
+spanAction _ action [f,lineStart,colStart,lineEnd,colEnd] = action f $ mkSrcSpan (mkSrcLoc (fsLit f) (read lineStart) (read colStart)) (mkSrcLoc (fsLit f) (read lineEnd) (read colEnd))
+spanAction cmd _ _ = throw $ InvalidCommandLine (Left cmd)
 
 hlintArgSpec :: [OptDescr (Options -> Options)]
 hlintArgSpec =

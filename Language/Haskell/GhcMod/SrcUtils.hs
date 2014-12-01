@@ -1,16 +1,16 @@
-{-# LANGUAGE TupleSections, FlexibleInstances, Rank2Types #-}
+{-# LANGUAGE TupleSections, FlexibleInstances, Rank2Types, GADTs #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Language.Haskell.GhcMod.SrcUtils where
 
 import Control.Applicative ((<$>))
 import CoreUtils (exprType)
-import Data.Generics
+import Data.Generics hiding (Fixity)
 import Data.Maybe (fromMaybe)
 import Data.Ord as O
-import GHC (LHsExpr, LPat, Id, DynFlags, SrcSpan, Type, Located, ParsedSource, RenamedSource, TypecheckedSource, GenLocated(L))
+import GHC (LHsExpr, LPat, Id, DynFlags, SrcSpan, Type, Located, ParsedSource, RenamedSource, TypecheckedSource, GenLocated(L),Fixity(),unLoc)
 import qualified GHC as G
-import GHC.SYB.Utils (Stage(..), everythingStaged)
+import GHC.SYB.Utils (Stage(..), everythingStaged, somethingStaged)
 import GhcMonad
 import qualified Language.Haskell.Exts.Annotated as HE
 import Language.Haskell.GhcMod.Doc (showOneLine, getStyle)
@@ -22,6 +22,12 @@ import Language.Haskell.GhcMod.Target (setTargetFiles)
 import OccName (OccName)
 import Outputable (PprStyle)
 import TcHsSyn (hsPatType)
+import HsExpr(HsExpr(..), Match(..))
+import NameSet(NameSet())
+import Var(Var())
+import VarSet
+import HsPat(Pat(..))
+import HsLit(PostTcType)
 
 ----------------------------------------------------------------
 
@@ -35,6 +41,11 @@ instance HasType (LPat Id) where
     getType _ (G.L spn pat) = return $ Just (spn, hsPatType pat)
 
 ----------------------------------------------------------------
+
+listifyContained :: Typeable a => TypecheckedSource -> SrcSpan -> [Located a]
+listifyContained tcs span = listifyStaged TypeChecker p tcs
+  where
+    p (L spn _) = spn `G.isSubspanOf` span
 
 listifySpans :: Typeable a => TypecheckedSource -> (Int, Int) -> [Located a]
 listifySpans tcs lc = listifyStaged TypeChecker p tcs
@@ -104,3 +115,40 @@ showName dflag style name = showOneLine dflag style $ Gap.nameForUser name
 
 showOccName :: DynFlags -> PprStyle -> OccName -> String
 showOccName dflag style name = showOneLine dflag style $ Gap.occNameForUser name
+
+----------------------------------------------------------------
+
+avoidPotholes :: Stage -> a -> GenericQ a -> GenericQ a
+avoidPotholes stage x f = ((f `extQ` avoidNameSet stage x f) `extQ` avoidPostTcType stage x f) `extQ` avoidFixity stage x f
+
+avoidNameSet :: Stage -> a -> GenericQ a -> NameSet -> a
+avoidNameSet stage x f | stage `elem` [Parser,TypeChecker] = const x
+                       | otherwise                         = f
+
+avoidPostTcType :: Stage -> a -> GenericQ a -> PostTcType -> a
+avoidPostTcType stage x f | stage < TypeChecker = const x
+                          | otherwise           = f
+
+avoidFixity :: Stage -> a -> GenericQ a -> Fixity -> a
+avoidFixity stage x f | stage < Renamer = const x
+                      | otherwise       = f 
+
+hsFreeVars' :: (Data a) => a -> VarSet
+hsFreeVars' x = unionVarSets $ gmapQ (avoidPotholes TypeChecker emptyVarSet $ (hsFreeVars' `extQ` hsFreeVars) `extQ` matchFreeVars) x
+
+hsFreeVars :: HsExpr Var -> VarSet
+hsFreeVars (HsVar x) = unitVarSet x
+hsFreeVars hse = hsFreeVars' hse
+
+patVars' :: (Data a) => a -> VarSet
+patVars' x = unionVarSets $ gmapQ (avoidPotholes TypeChecker emptyVarSet $ patVars' `extQ` patVars) x
+
+patVars :: Pat Var -> VarSet
+patVars (VarPat x) = unitVarSet x
+patVars p = patVars' p 
+
+matchFreeVars :: Match Var (LHsExpr Var) -> VarSet
+matchFreeVars (Match pats _ rhs) = hsFreeVars' rhs `minusVarSet` (unionVarSets $ map (patVars . unLoc) pats)
+
+----------------------------------------------------------------
+
